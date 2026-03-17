@@ -1,0 +1,25 @@
+# Music ML - Playlist Classifier
+# Install with: pip install -r requirements.txt
+
+# Core ML
+sentence-transformers
+scikit-learn
+lightgbm
+numpy
+pandas
+
+# Lyrics & metadata APIs
+lyricsgenius
+requests
+
+# NLP
+nltk
+nrclex
+
+# OCR (Step 1 only)
+pytesseract
+Pillow
+
+# OCR cleaning (Step 2 only)
+musicbrainzngs
+tqdm
