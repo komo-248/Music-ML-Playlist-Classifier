@@ -1,226 +1,284 @@
-# Music ML – Genre & Playlist Classifier
+# Music ML – Playlist Classifier
 
-A multi-label song classifier that predicts which personal playlists a song belongs to, built using sentence embeddings, NLP sentiment/emotion analysis, and a multi-output MLP neural network. The project also includes a full data recovery pipeline using OCR and LLM-assisted cleaning to reconstruct a corrupted music library database from screenshots.
+Multi-label song classifier that predicts which playlists a song belongs to using Sentence-BERT embeddings, NLP-derived features, and a multi-output MLP neural network. Built to classify a personal library of ~18,000 songs across 11 genre and mood playlists.
+
+Also includes a full data recovery pipeline using OCR and MusicBrainz validation — used to reconstruct a music library database that was corrupted during a platform migration.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [The Problem: Corrupted Database](#the-problem-corrupted-database)
-- [Pipeline Overview](#pipeline-overview)
-- [Stage 1 – OCR Extraction](#stage-1--ocr-extraction)
-- [Stage 2 – OCR Cleaning & MusicBrainz Validation](#stage-2--ocr-cleaning--musicbrainz-validation)
-- [Stage 3 – Metadata Enrichment](#stage-3--metadata-enrichment)
-- [Stage 4 – Classification (Colab)](#stage-4--classification-colab)
+- [Project Background](#project-background)
+- [Repo Structure](#repo-structure)
+- [Setup](#setup)
+- [Pipeline](#pipeline)
+  - [Step 1 — OCR Extraction](#step-1--ocr-extraction)
+  - [Step 2 — OCR Cleaning](#step-2--ocr-cleaning)
+  - [Step 3 — Metadata Enrichment](#step-3--metadata-enrichment)
+  - [Step 4 — Classification](#step-4--classification)
+- [Datasets](#datasets)
+- [Model Details](#model-details)
 - [Playlists](#playlists)
-- [Results](#results)
-- [Dependencies](#dependencies)
-- [Files](#files)
+- [Output](#output)
 
 ---
 
-## Overview
-
-The end goal was to take a library of ~18,000 songs and automatically assign each one to one or more personal genre/mood playlists. The training signal came from existing hand-curated playlists; the model learned the textual and emotional signature of each playlist and applied it to the full unclassified library.
-
-**Techniques used:**
-- OCR with Tesseract for database recovery from screenshots
-- MusicBrainz API for fuzzy song title/artist validation
-- Genius API for lyric retrieval
-- Last.fm API for genre tag retrieval
-- VADER sentiment analysis (NLTK)
-- NRCLex emotion classification
-- Sentence-BERT embeddings (`all-MiniLM-L6-v2`)
-- Multi-output MLP classifier (scikit-learn) with class balancing
-
----
-
-## The Problem: Corrupted Database
+## Project Background
 
 The song library was originally managed in a YouTube Music frontend that supported database export. When migrating to Apple Music, the exported database file was corrupted and unrecoverable. Rather than re-entering thousands of songs manually, the recovery process was:
 
-1. **Screenshot** every page of the music library from the frontend UI
-2. **OCR** all screenshots with Tesseract to extract raw text
-3. **Clean** the OCR output using regex heuristics and MusicBrainz API validation to reconstruct proper `Title – Artist` pairs
-4. Use the recovered song list as the base dataset for enrichment and classification
+1. Screenshot every page of the music library from the UI
+2. OCR all screenshots with Tesseract to extract raw text
+3. Clean the OCR output and validate against MusicBrainz to reconstruct `Title – Artist` pairs
+4. Enrich the recovered song list with lyrics, genre tags, sentiment, and emotion
+5. Train a multi-label classifier on hand-curated playlists and predict assignments for the full library
 
 ---
 
-## Pipeline Overview
+## Repo Structure
 
 ```
-Screenshots (PNG)
-      │
-      ▼
-[Stage 1] OCR Extraction (Tesseract)
-      │  → OCR.txt
-      ▼
-[Stage 2] OCR Cleaning + MusicBrainz Validation
-      │  → Cleaned_Song_List.csv
-      ▼
-[Stage 3] Metadata Enrichment
-      │    Genius API → Lyrics
-      │    Last.fm API → Genre Tags
-      │    VADER → Sentiment
-      │    NRCLex → Dominant Emotion
-      │  → Full_Song_Metadata.csv
-      │  → labeled_dataset.csv (songs in existing playlists)
-      │  → unlabeled_dataset.csv (full library, no labels)
-      ▼
-[Stage 4] Classification (Google Colab)
-      │    Sentence-BERT embeddings
-      │    Multi-output MLP + class balancing
-      │    Per-label probability thresholds
-      │  → predicted_playlists.csv
+Music-ML-Playlist-Classifier/
+│
+├── OCR/
+│   ├── Step 1 (Extractor)/
+│   │   └── ocr_song_extractor.py          # Tesseract OCR over screenshots → OCR.txt
+│   └── Step 2 (Clean)/
+│       └── clean_ocr_music_blocks.py      # Regex cleaning + MusicBrainz validation
+│
+├── Programs/
+│   ├── build_song_metadata.py             # Enrich song list with lyrics, tags, NLP
+│   ├── build_song_metadata_resume.py      # Resume-safe version (skips already enriched rows)
+│   └── Old/
+│       ├── lyrics_tags.py                 # Standalone lyrics + Last.fm tags script
+│       └── analyze_lyrics_sentiment_emotion.py  # Standalone NLP sentiment/emotion script
+│
+├── ML/
+│   └── playlist_classifier.py            # Full training + prediction script (run in Colab)
+│
+├── data/
+│   ├── labeled_dataset.csv               # Songs with playlist labels (~59k rows)
+│   ├── unlabeled_dataset.csv             # Full library, no labels (~182k rows)
+│   └── predicted_playlists.csv           # Final classifier output
+│
+└── requirements.txt
 ```
+
+> `data/` files are not included in the repo due to size. See [Datasets](#datasets) for column schema.
 
 ---
 
-## Stage 1 – OCR Extraction
+## Setup
 
-**Script:** `OCR/Step 1 (Extractor)/ocr_song_extractor.py`
+**1. Clone the repo**
+```bash
+git clone https://github.com/komo-248/Music-ML-Playlist-Classifier.git
+cd Music-ML-Playlist-Classifier
+```
 
-Runs Tesseract OCR over a folder of `.png` screenshots and writes all extracted text to a single output file, with each image's output delimited by a header block.
+**2. Install dependencies**
+```bash
+pip install -r requirements.txt
+```
 
+**3. External tools (OCR steps only)**
+
+Install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) and update the path in `ocr_song_extractor.py`:
 ```python
-# === USER CONFIGURATION ===
-INPUT_FOLDER = r"C:\path\to\screenshots"   # Folder of .png screenshot files
-OUTPUT_FILE  = r"C:\path\to\OCR.txt"       # Output raw text file
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 ```
 
-**Output format (`OCR.txt`):**
+**4. API keys (metadata enrichment only)**
+
+The enrichment scripts require two API keys — set them directly in the config section of each script before running:
+
+| Key | Where to get it |
+|-----|----------------|
+| `GENIUS_API_TOKEN` | [genius.com/api-clients](https://genius.com/api-clients) |
+| `LASTFM_API_KEY` | [last.fm/api](https://www.last.fm/api) |
+
+> Never commit API keys to the repo. Set them locally in the script config before running.
+
+---
+
+## Pipeline
+
+The four steps below describe the full data flow from screenshots to classified playlists. Each step can be run independently if you already have the outputs from a previous step.
+
+---
+
+### Step 1 — OCR Extraction
+
+**Script:** `OCR/Step 1 (Extractor)/ocr_song_extractor.py`  
+**Input:** Folder of `.png` screenshots of the music library UI  
+**Output:** `OCR.txt` — raw text extracted per screenshot
+
+Runs Tesseract over every `.png` in the input folder and writes the results to a single output file. Each screenshot's output is separated by a filename header.
+
+**Configure before running:**
+```python
+INPUT_FOLDER   = r"C:\path\to\screenshots"
+OUTPUT_FILE    = r"C:\path\to\OCR.txt"
+TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+```
+
+**Run:**
+```bash
+python "OCR/Step 1 (Extractor)/ocr_song_extractor.py"
+```
+
+**Output format:**
 ```
 --- screenshot_001.png ---
 Song Title
 Artist Name
 3:42
 ...
-
---- screenshot_002.png ---
-...
 ```
-
-**Requirements:**
-- [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed
-- `pytesseract`, `Pillow`
 
 ---
 
-## Stage 2 – OCR Cleaning & MusicBrainz Validation
+### Step 2 — OCR Cleaning
 
-**Script:** `OCR/Step 2 (Clean)/clean_ocr_music_blocks.py`
+**Script:** `OCR/Step 2 (Clean)/clean_ocr_music_blocks.py`  
+**Input:** `OCR.txt` from Step 1  
+**Output:** `Cleaned_Songs_By_Image.txt` → reviewed and saved as `Cleaned_Song_List.csv`
 
-The raw OCR output is noisy — timestamps, UI text, and partial reads all contaminate the song data. This script cleans the output per image block using regex heuristics, then optionally validates each entry against the MusicBrainz database to confirm and correct artist/title pairs.
+Raw OCR output contains timestamps, UI text, and partial reads. This script cleans it per image block and optionally validates each entry against MusicBrainz to confirm and correct `Title – Artist` pairs.
+
+**Configure before running:**
+```python
+OCR_INPUT_PATH      = r"C:\path\to\OCR.txt"
+OUTPUT_CLEANED_PATH = r"C:\path\to\Cleaned_Songs_By_Image.txt"
+USE_MUSICBRAINZ     = True  # Set False to skip validation (faster, less accurate)
+```
 
 **Cleaning logic:**
-- Strips lines under 2 characters
-- Removes timestamp patterns (e.g. `3:42`)
+- Removes lines under 2 characters and timestamp patterns (e.g. `3:42`)
 - Pairs adjacent short lines as `Title – Artist` candidates
-- Fuzzy-searches MusicBrainz for unmatched entries and returns the top result
+- For unmatched entries, fuzzy-searches MusicBrainz and returns the top result
+- Requests are throttled to 1/sec to comply with MusicBrainz rate limits
 
-```python
-USE_MUSICBRAINZ = True  # Set False to skip API validation (faster, less accurate)
+**Run:**
+```bash
+python "OCR/Step 2 (Clean)/clean_ocr_music_blocks.py"
 ```
-
-> MusicBrainz requests are throttled to 1 per second to comply with API rate limits.
-
-**Output:** `Cleaned_Songs_By_Image.txt` → reviewed and exported as `Cleaned_Song_List.csv`
 
 ---
 
-## Stage 3 – Metadata Enrichment
+### Step 3 — Metadata Enrichment
 
-**Scripts:** `Programs/build_song_metadata.py`, `Programs/build_song_metadata_after currentplaylists.py`
+**Script:** `Programs/build_song_metadata_resume.py`  
+*(Use `build_song_metadata.py` for a fresh run from scratch)*  
+**Input:** `Cleaned_Song_List.csv` with `Title` and `Artist` columns  
+**Output:** `labeled_dataset.csv`, `unlabeled_dataset.csv` — enriched with 4 features
 
-Each song in the cleaned list is enriched with four additional features used as classifier input:
+Each song is enriched with the features that the classifier uses as input:
 
-| Feature | Source | Method |
-|---------|--------|--------|
-| `Lyrics` | Genius API | `lyricsgenius` — searched by title + artist |
-| `Tags` | Last.fm API | `track.gettoptags` → fallback to `artist.gettoptags` |
-| `Sentiment` | NLTK VADER | Compound score → `positive` / `neutral` / `negative` |
-| `Dominant_Emotion` | NRCLex | Top emotion from NRC Emotion Lexicon scores |
+| Column | Source | Description |
+|--------|--------|-------------|
+| `Lyrics` | Genius API | Full lyrics fetched via `lyricsgenius` |
+| `Tags` | Last.fm API | Top 3 genre/style tags for track, fallback to artist |
+| `Sentiment` | NLTK VADER | `positive` / `neutral` / `negative` from compound score |
+| `Dominant_Emotion` | NRCLex | Top emotion from NRC Lexicon (joy, fear, anger, etc.) |
 
-**Configuration (set before running):**
-
+**Configure before running:**
 ```python
-GENIUS_API_TOKEN = ""   # Genius API token
-LASTFM_API_KEY   = ""   # Last.fm API key
-INPUT_CSV        = ""   # Path to cleaned song list
-OUTPUT_CSV       = ""   # Path for enriched output
-DELAY = 1               # Seconds between API calls (avoid rate limiting)
+GENIUS_API_TOKEN     = ""  # Your Genius API token
+LASTFM_API_KEY       = ""  # Your Last.fm API key
+INPUT_LABELED_CSV    = ""  # Path to labeled songs CSV
+INPUT_UNLABELED_CSV  = ""  # Path to full library CSV
+OUTPUT_LABELED_CSV   = ""  # Output path for enriched labeled set
+OUTPUT_UNLABELED_CSV = ""  # Output path for enriched unlabeled set
+DELAY = 1                  # Seconds between API calls (avoid rate limiting)
 ```
 
-The second script (`build_song_metadata_after currentplaylists.py`) handles the labeled and unlabeled datasets separately and skips already-enriched rows, making it safe to resume interrupted runs.
+**Run:**
+```bash
+python Programs/build_song_metadata_resume.py
+```
 
-**Output columns:**
+The resume-safe version skips rows that already have lyrics, tags, or NLP scores — safe to restart after interruptions without re-fetching or wasting API calls.
 
+---
+
+### Step 4 — Classification
+
+**Script:** `ML/playlist_classifier.py`  
+**Recommended:** Google Colab with GPU runtime  
+**Input:** `labeled_dataset.csv`, `unlabeled_dataset.csv`  
+**Output:** `predicted_playlists.csv`
+
+#### Running in Google Colab
+
+1. Upload `labeled_dataset.csv` and `unlabeled_dataset.csv` to Google Drive
+2. Go to [colab.research.google.com](https://colab.research.google.com) and create a new notebook
+3. Set runtime to **GPU**: Runtime → Change runtime type → T4 GPU
+4. In the first cell, install dependencies:
+   ```python
+   !pip install sentence-transformers scikit-learn lightgbm
+   ```
+5. Copy the contents of `playlist_classifier.py` into the next cell
+6. Update the file paths in the Configuration section:
+   ```python
+   LABELED_CSV   = '/content/drive/MyDrive/labeled_dataset.csv'
+   UNLABELED_CSV = '/content/drive/MyDrive/unlabeled_dataset.csv'
+   OUTPUT_DIR    = '/content/drive/MyDrive/predicted_playlists_final'
+   ```
+7. Run all cells — the output CSV will be saved to your Drive
+
+#### How it works
+
+**Embedding:** Lyrics, tags, sentiment, and emotion are concatenated into a single string per song and encoded into a 384-dimensional vector using `all-MiniLM-L6-v2`. Sentence-BERT captures semantic meaning so songs with similar lyrical themes cluster together in vector space, even when the exact words differ.
+
+**Class balancing:** Playlist sizes vary widely — `lofi_playlist` is much larger than `christmas_playlist`. Without correction the model ignores minority classes. Each class is upsampled with replacement to match the largest class before training.
+
+**Model:** `MLPClassifier(hidden_layer_sizes=(256, 128))` wrapped in `MultiOutputClassifier` — one independent binary classifier per playlist.
+
+**Thresholds:** Each playlist uses its own probability threshold rather than a fixed 0.5:
+
+| Playlist | Threshold | Reason |
+|----------|-----------|--------|
+| Most playlists | 0.15 | Inclusive — mood and niche playlists benefit from a wider net |
+| `rap_playlist` | 0.50 | Stricter — broad genre bleeds into many other categories |
+| `country_playlist` | 0.50 | Same reason |
+
+---
+
+## Datasets
+
+Data files are not included in the repo due to size. Column schema:
+
+**`labeled_dataset.csv`** (~59,000 rows)
+```
+Title | Artist | Lyrics | Tags | Sentiment | Dominant_Emotion | Playlists | Add to new playlists?
+```
+
+**`unlabeled_dataset.csv`** (~182,000 rows)
 ```
 Title | Artist | Lyrics | Tags | Sentiment | Dominant_Emotion | Playlists
 ```
 
-- `labeled_dataset.csv` — songs already assigned to at least one playlist (~58,997 rows)
-- `unlabeled_dataset.csv` — full library with no playlist assignment (~182,439 rows)
+**`predicted_playlists.csv`** (output)
+```
+Title | Artist | Playlist
+```
 
 ---
 
-## Stage 4 – Classification (Colab)
+## Model Details
 
-**Notebook:** `ML/Full Classifier/Untitled0.ipynb`
-
-Run in Google Colab with GPU. Takes the labeled and unlabeled datasets and trains a multi-label MLP classifier to predict playlist membership for every song.
-
-### Embedding
-
-Each song's text fields (lyrics, tags, sentiment, emotion) are concatenated and encoded into a 384-dimensional vector using `sentence-transformers/all-MiniLM-L6-v2`:
-
-```python
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
-combined_text = ' '.join([lyrics, tags, sentiment, dominant_emotion])
-X = embedder.encode(combined_texts, batch_size=64)
-```
-
-Sentence-BERT was chosen over TF-IDF or word2vec because it produces semantically meaningful dense representations — words like "heartbreak" and "longing" end up near each other in embedding space, which helps the model generalize across lyric style.
-
-### Class Balancing
-
-Playlist sizes vary widely (e.g. `lofi_playlist` >> `christmas_playlist`). Without balancing, the model learns to ignore minority classes. Each playlist class is upsampled to match the largest class using `sklearn.utils.resample` with replacement:
-
-```python
-max_size = Y_df.sum().max()
-for label in mlb.classes_:
-    rows = combined_df[combined_df[label] == 1]
-    upsampled = resample(rows, replace=True, n_samples=max_size, random_state=42)
-```
-
-### Model
-
-```python
-MLPClassifier(hidden_layer_sizes=(256, 128), max_iter=300, random_state=42)
-wrapped in MultiOutputClassifier  # One binary classifier per playlist
-```
-
-### Prediction Thresholds
-
-Rather than a fixed 0.5 threshold, per-label thresholds were tuned to control precision/recall trade-offs per playlist:
-
-```python
-thresholds = {label: 0.15 for label in mlb.classes_}
-thresholds.update({
-    'rap_playlist':     0.5,   # High precision needed — broad genre bleeds
-    'country_playlist': 0.5,   # Same reason
-})
-```
-
-Lower thresholds (0.15) for mood/niche playlists allow more inclusive assignment; higher thresholds (0.5) for broad genres prevent over-assignment.
+| Component | Details |
+|-----------|---------|
+| Embedding model | `sentence-transformers/all-MiniLM-L6-v2` (384-dim) |
+| Classifier | `MLPClassifier(hidden_layer_sizes=(256, 128), max_iter=300)` |
+| Wrapper | `MultiOutputClassifier` — one binary classifier per label |
+| Balancing | Upsample with replacement to max class size |
+| Runtime | ~10 min on Colab T4 GPU for 240k songs |
 
 ---
 
 ## Playlists
-
-The classifier predicts membership across 11 playlists:
 
 | Playlist | Type |
 |----------|------|
@@ -228,75 +286,24 @@ The classifier predicts membership across 11 playlists:
 | `country_playlist` | Genre |
 | `pop_playlist` | Genre |
 | `edm_alt_rock_playlist` | Genre |
-| `christian_playlist` | Genre/Theme |
-| `christmas_playlist` | Theme/Seasonal |
+| `christian_playlist` | Theme |
+| `christmas_playlist` | Seasonal |
 | `lofi_playlist` | Mood/Style |
 | `feels_playlist` | Mood |
-| `movie_playlist` | Context/Theme |
+| `movie_playlist` | Context |
 | `star_playlist` | Curated favorites |
 | `vocalist_instrumental_playlist` | Style |
 
 ---
 
-## Results
+## Output
 
-**Output:** `Final Predicted Playlists/predicted_playlists.csv`
-
-The final CSV contains each song's predicted playlist assignments. Songs flagged `Add to new playlists? = True` in the labeled set, and all unlabeled songs, are included in the output. Songs with no playlist prediction above threshold are tagged `unassigned`.
-
-| Title | Artist | Playlist |
-|-------|--------|---------|
-| 'Til You Can't | Cody Johnson | country_playlist |
-| ... | ... | ... |
-
----
-
-## Dependencies
-
-```bash
-pip install pytesseract Pillow
-pip install musicbrainzngs tqdm
-pip install lyricsgenius requests
-pip install nltk nrclex pandas
-pip install sentence-transformers scikit-learn
-```
-
-**External tools:**
-- [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) (Stage 1)
-- Genius API token — [genius.com/api-clients](https://genius.com/api-clients)
-- Last.fm API key — [last.fm/api](https://www.last.fm/api)
-
----
-
-## Files
+`predicted_playlists.csv` contains one row per song-playlist assignment. Songs with no prediction above threshold are tagged `unassigned`.
 
 ```
-├── OCR/
-│   ├── Step 1 (Extractor)/
-│   │   └── ocr_song_extractor.py          # Tesseract OCR over screenshots
-│   ├── Step 2 (Clean)/
-│   │   └── clean_ocr_music_blocks.py      # Regex cleaning + MusicBrainz validation
-│   ├── Song Titles.txt                    # Raw recovered song list
-│   └── Cleaned_Song_List.csv              # Cleaned Title/Artist pairs
-│
-├── Programs/
-│   ├── build_song_metadata.py             # Initial metadata enrichment
-│   ├── build_song_metadata_after currentplaylists.py  # Resume-safe enrichment
-│   └── Old/
-│       ├── analyze_lyrics_sentiment_emotion.py  # Standalone sentiment/emotion script
-│       └── lyrics_tags.py                       # Standalone lyrics + tags script
-│
-├── ML/
-│   ├── Full_Song_Metadata.csv             # Full enriched dataset
-│   ├── labeled_dataset.csv                # Songs with playlist labels (~59k rows)
-│   ├── unlabeled_dataset.csv              # Full library without labels (~182k rows)
-│   └── Full Classifier/
-│       └── Untitled0.ipynb                # Colab training + prediction notebook
-│
-├── Playlists/
-│   ├── Current/                           # Full playlist CSVs used for training
-│   └── Playlists First 100/               # Initial 100-song playlist text files
-│
-└── Final Predicted Playlists/
-    └── predicted_playlists.csv            # Final classifier output
+Title,Artist,Playlist
+'Til You Can't,Cody Johnson,country_playlist
+...
 ```
+
+Songs in the labeled set are only included in output if `Add to new playlists?` is `True`. All unlabeled songs are always included.
