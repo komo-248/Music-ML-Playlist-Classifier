@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Music ML – Playlist Classifier</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f7f6f3; --surface: #ffffff; --border: #e4e2dc;
+      --text: #1a1917; --muted: #7a7870; --accent: #2a5caa;
+      --accent-soft: #eef2fa; --tag-bg: #eeece8; --tag-text: #4a4840;
+      --mono: 'DM Mono', monospace; --sans: 'DM Sans', sans-serif;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    .container { max-width: 900px; margin: 0 auto; padding: 0 32px; }
+    header { padding: 56px 0 48px; border-bottom: 1px solid var(--border); opacity: 0; animation: fadeUp 0.6s ease forwards; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 32px; transition: color 0.2s; }
+    .back-link:hover { color: var(--accent); }
+    .back-link svg { width: 13px; height: 13px; stroke: currentColor; fill: none; }
+    .hero-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+    h1 { font-family: var(--mono); font-size: clamp(22px, 4vw, 34px); font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 16px; }
+    .hero-desc { font-size: 15px; color: var(--muted); font-weight: 300; max-width: 620px; line-height: 1.65; margin-bottom: 24px; }
+    .hero-links { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; text-decoration: none; padding: 7px 14px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted); transition: all 0.15s; }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover { background: #1e4a8a; }
+    .btn svg { width: 12px; height: 12px; stroke: currentColor; fill: none; }
+    .section { padding: 48px 0; border-bottom: 1px solid var(--border); opacity: 0; animation: fadeUp 0.5s ease forwards; }
+    .section:last-of-type { border-bottom: none; }
+    .section-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 24px; display: flex; align-items: center; gap: 10px; }
+    .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .spec-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .spec-table th { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .spec-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+    .spec-table tr:last-child td { border-bottom: none; }
+    .spec-table td:first-child { font-weight: 500; min-width: 140px; }
+    .spec-table code { font-family: var(--mono); font-size: 12px; background: var(--tag-bg); padding: 2px 6px; border-radius: 2px; }
+
+    /* STATS */
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); margin-bottom: 0; }
+    .stat { background: var(--surface); padding: 24px; text-align: center; }
+    .stat-val { font-family: var(--mono); font-size: 32px; font-weight: 300; color: var(--accent); line-height: 1; margin-bottom: 6px; }
+    .stat-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+    /* PIPELINE */
+    .pipeline { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+    .pipe-stage { background: var(--surface); padding: 20px 24px; display: flex; gap: 16px; }
+    .pipe-num { font-family: var(--mono); font-size: 11px; color: var(--accent); min-width: 20px; font-weight: 500; padding-top: 2px; }
+    .pipe-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+    .pipe-desc { font-size: 13px; color: var(--muted); font-weight: 300; line-height: 1.55; }
+
+    /* PLAYLISTS */
+    .playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+    .playlist-item { background: var(--surface); padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .playlist-name { font-family: var(--mono); font-size: 12px; color: var(--text); }
+    .playlist-type { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .section:nth-child(2) { animation-delay: 0.05s; }
+    .section:nth-child(3) { animation-delay: 0.10s; }
+    .section:nth-child(4) { animation-delay: 0.15s; }
+    .section:nth-child(5) { animation-delay: 0.20s; }
+    footer { padding: 28px 0; border-top: 1px solid var(--border); }
+    .footer-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .footer-inner span, .footer-inner a { font-family: var(--mono); font-size: 11px; color: var(--muted); text-decoration: none; letter-spacing: 0.04em; transition: color 0.15s; }
+    .footer-inner a:hover { color: var(--accent); }
+    @media (max-width: 600px) { .container { padding: 0 20px; } .stats-row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <a class="back-link" href="https://komo-248.github.io/komo.github.io">
+      <svg viewBox="0 0 24 24" stroke-width="1.6"><polyline points="15 18 9 12 15 6"/></svg>
+      Portfolio
+    </a>
+    <div class="hero-label">Signal Processing & ML</div>
+    <h1>Music ML — Playlist Classifier</h1>
+    <p class="hero-desc">Multi-label song classifier predicting playlist assignments across 11 genre and mood categories. Built on Sentence-BERT embeddings and a multi-output MLP — and preceded by a full OCR-based data recovery pipeline that reconstructed an 18,000-song library corrupted during platform migration.</p>
+    <div class="hero-links">
+      <a class="btn primary" href="https://github.com/komo-248/Music-ML-Playlist-Classifier" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" stroke-width="1.6"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <!-- STATS -->
+  <section class="section">
+    <div class="section-label">Scale</div>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-val">18K</div><div class="stat-label">Songs Recovered via OCR</div></div>
+      <div class="stat"><div class="stat-val">241K</div><div class="stat-label">Total Songs Classified</div></div>
+      <div class="stat"><div class="stat-val">11</div><div class="stat-label">Playlist Labels</div></div>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section class="section">
+    <div class="section-label">Pipeline</div>
+    <div class="pipeline">
+      <div class="pipe-stage">
+        <div class="pipe-num">01</div>
+        <div>
+          <div class="pipe-title">OCR Extraction</div>
+          <div class="pipe-desc">Tesseract OCR over screenshots of the music library UI — extracts raw title/artist text per page image.</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-num">02</div>
+        <div>
+          <div class="pipe-title">OCR Cleaning & MusicBrainz Validation</div>
+          <div class="pipe-desc">Regex cleaning removes timestamps and UI fragments. Adjacent short lines are paired as Title–Artist candidates and validated against MusicBrainz (rate-limited at 1 req/sec).</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-num">03</div>
+        <div>
+          <div class="pipe-title">Metadata Enrichment</div>
+          <div class="pipe-desc">Each song enriched with Genius lyrics, Last.fm genre tags, NLTK VADER sentiment, and NRCLex dominant emotion. Resume-safe script skips already-processed rows.</div>
+        </div>
+      </div>
+      <div class="pipe-stage">
+        <div class="pipe-num">04</div>
+        <div>
+          <div class="pipe-title">Classification</div>
+          <div class="pipe-desc">Lyrics + tags + sentiment + emotion concatenated and encoded to 384-dim vectors via Sentence-BERT (all-MiniLM-L6-v2). MLPClassifier(256, 128) wrapped in MultiOutputClassifier — one binary classifier per playlist. Per-class probability thresholds (0.15–0.50) tuned to balance recall vs. precision per genre.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODEL -->
+  <section class="section">
+    <div class="section-label">Model Details</div>
+    <table class="spec-table">
+      <thead><tr><th>Component</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td>Embedding</td><td><code>all-MiniLM-L6-v2</code> — 384-dimensional Sentence-BERT vectors</td></tr>
+        <tr><td>Classifier</td><td><code>MLPClassifier(hidden_layer_sizes=(256, 128), max_iter=300)</code></td></tr>
+        <tr><td>Wrapper</td><td><code>MultiOutputClassifier</code> — independent binary classifier per label</td></tr>
+        <tr><td>Class Balancing</td><td>Upsample with replacement to max class size before training</td></tr>
+        <tr><td>Runtime</td><td>~10 min on Colab T4 GPU for 241K songs</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- PLAYLISTS -->
+  <section class="section">
+    <div class="section-label">Playlists</div>
+    <div class="playlist-grid">
+      <div class="playlist-item"><span class="playlist-name">rap</span><span class="playlist-type">Genre</span></div>
+      <div class="playlist-item"><span class="playlist-name">country</span><span class="playlist-type">Genre</span></div>
+      <div class="playlist-item"><span class="playlist-name">pop</span><span class="playlist-type">Genre</span></div>
+      <div class="playlist-item"><span class="playlist-name">edm / alt rock</span><span class="playlist-type">Genre</span></div>
+      <div class="playlist-item"><span class="playlist-name">christian</span><span class="playlist-type">Theme</span></div>
+      <div class="playlist-item"><span class="playlist-name">christmas</span><span class="playlist-type">Seasonal</span></div>
+      <div class="playlist-item"><span class="playlist-name">lofi</span><span class="playlist-type">Mood / Style</span></div>
+      <div class="playlist-item"><span class="playlist-name">feels</span><span class="playlist-type">Mood</span></div>
+      <div class="playlist-item"><span class="playlist-name">movie</span><span class="playlist-type">Context</span></div>
+      <div class="playlist-item"><span class="playlist-name">star</span><span class="playlist-type">Curated</span></div>
+      <div class="playlist-item"><span class="playlist-name">vocalist / instrumental</span><span class="playlist-type">Style</span></div>
+    </div>
+  </section>
+
+</div>
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <span>komo-248 · Music ML</span>
+      <a href="https://komo-248.github.io/komo.github.io">← Portfolio</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
